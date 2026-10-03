@@ -29,8 +29,24 @@ to avoid simulation speed slow down, suggest to set some settings belows:
 
 In `configuration` page:
 
-1. `ESC/Motor`: `PWM`, disable `Motor PWM speed Sparted from PID speed`
+1. `ESC/Motor`: `PWM` or `DSHOT150`/`DSHOT300`/`DSHOT600`. DShot uses
+   Betaflight's digital motor endpoints and command handling, then converts the
+   throttle to the same normalised UDP output as PWM. Electrical signalling,
+   ESC responses, and bidirectional DShot telemetry are not simulated.
 2. `PID loop frequency` as high as it can.
+
+To verify the virtual DShot backend from the CLI:
+
+```
+set motor_pwm_protocol = DSHOT300
+save
+```
+
+After restarting SITL, its log should contain:
+
+```
+Initialized virtual DShot motor count 4
+```
 
 ### start and run
 1. start betaflight: `./obj/main/betaflight_SITL.elf`

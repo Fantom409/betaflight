@@ -34,7 +34,9 @@
 #ifdef USE_DSHOT
 
 #include "build/debug.h"
+#if !ENABLE_SIMULATOR
 #include "build/atomic.h"
+#endif
 
 #include "common/filter.h"
 #include "common/maths.h"
@@ -124,10 +126,18 @@ FAST_CODE uint16_t prepareDshotPacket(dshotProtocolControl_t *pcb)
 {
     uint16_t packet;
 
+#if ENABLE_SIMULATOR
+    // Hosted SITL has no ARM BASEPRI register and its virtual backend does not
+    // generate electrical DShot frames.  Keep the state transition available
+    // for shared DShot logic without pulling in MCU-only atomic primitives.
+    packet = (pcb->value << 1) | (pcb->requestTelemetry ? 1 : 0);
+    pcb->requestTelemetry = false;
+#else
     ATOMIC_BLOCK(NVIC_PRIO_DSHOT_DMA) {
         packet = (pcb->value << 1) | (pcb->requestTelemetry ? 1 : 0);
         pcb->requestTelemetry = false;    // reset telemetry request to make sure it's triggered only once in a row
     }
+#endif
 
     // compute checksum
     unsigned csum = 0;

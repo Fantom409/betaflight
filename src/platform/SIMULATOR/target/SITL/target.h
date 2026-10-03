@@ -129,6 +129,11 @@
 #define USE_PWM_OUTPUT
 #endif
 
+// Exercise Betaflight's digital motor path in SITL.  The simulator backend
+// converts DShot throttle values to the existing normalised UDP motor output;
+// it does not emulate the electrical DShot waveform or ESC telemetry.
+#define USE_DSHOT
+
 #define USE_BLACKBOX
 #define USE_BLACKBOX_VIRTUAL
 

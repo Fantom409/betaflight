@@ -35,6 +35,8 @@
 #include "drivers/exti.h"
 #include "drivers/io.h"
 #include "drivers/dma.h"
+#include "drivers/dshot.h"
+#include "drivers/dshot_command.h"
 #include "drivers/motor_impl.h"
 #include "drivers/serial.h"
 #include "drivers/serial_tcp.h"
@@ -807,6 +809,9 @@ static pwmOutputPort_t servos[MAX_SUPPORTED_SERVOS];
 static int16_t motorsPwm[MAX_SUPPORTED_MOTORS];
 static int16_t servosPwm[MAX_SUPPORTED_SERVOS];
 static int16_t idlePulse;
+#ifdef USE_DSHOT
+static uint16_t motorsDshot[MAX_SUPPORTED_MOTORS];
+#endif
 
 void servoDevInit(const servoDevConfig_t *servoConfig)
 {
@@ -852,6 +857,37 @@ static void pwmWriteMotorInt(uint8_t index, uint16_t value)
 {
     pwmWriteMotor(index, (float)value);
 }
+
+#ifdef USE_DSHOT
+static void dshotWriteMotor(uint8_t index, float value)
+{
+    if (index < MAX_SUPPORTED_MOTORS) {
+        motorsDshot[index] = value;
+    }
+
+    // Gazebo and RealFlight consume PWM-like values rather than DShot frames.
+    // Preserve DShot endpoints in the mixer, then translate only at the UDP
+    // transport boundary.  Values 0..47 are commands and therefore map to the
+    // neutral/stopped external value.
+    pwmWriteMotor(index, dshotConvertToExternal(value));
+}
+
+static void dshotWriteMotorInt(uint8_t index, uint16_t value)
+{
+    dshotWriteMotor(index, value);
+}
+
+static bool dshotIsMotorIdle(unsigned index)
+{
+    return index < dshotMotorCount && motorsDshot[index] == DSHOT_CMD_MOTOR_STOP;
+}
+
+static void dshotRequestTelemetry(unsigned index)
+{
+    // Virtual ESC telemetry is not modelled by SITL.
+    UNUSED(index);
+}
+#endif
 
 static void pwmShutdownPulsesForAllMotors(void)
 {
@@ -904,6 +940,25 @@ static const motorVTable_t vTable = {
     .getMotorIO = NULL,
 };
 
+#ifdef USE_DSHOT
+static const motorVTable_t dshotVTable = {
+    .postInit = motorPostInitNull,
+    .convertExternalToMotor = dshotConvertFromExternal,
+    .convertMotorToExternal = dshotConvertToExternal,
+    .enable = pwmEnableMotors,
+    .disable = pwmDisableMotors,
+    .isMotorEnabled = pwmIsMotorEnabled,
+    .decodeTelemetry = motorDecodeTelemetryNull,
+    .write = dshotWriteMotor,
+    .writeInt = dshotWriteMotorInt,
+    .updateComplete = pwmCompleteMotorUpdate,
+    .shutdown = pwmShutdownPulsesForAllMotors,
+    .requestTelemetry = dshotRequestTelemetry,
+    .isMotorIdle = dshotIsMotorIdle,
+    .getMotorIO = NULL,
+};
+#endif
+
 bool motorPwmDevInit(motorDevice_t *device, const motorDevConfig_t *motorConfig, uint16_t _idlePulse)
 {
     UNUSED(motorConfig);
@@ -926,6 +981,36 @@ bool motorPwmDevInit(motorDevice_t *device, const motorDevConfig_t *motorConfig,
 
     return true;
 }
+
+#ifdef USE_DSHOT
+bool dshotPwmDevInit(motorDevice_t *device, const motorDevConfig_t *motorConfig)
+{
+    UNUSED(motorConfig);
+
+    if (!device) {
+        return false;
+    }
+
+    pwmMotorCount = device->count;
+    dshotMotorCount = device->count;
+    device->vTable = &dshotVTable;
+
+    printf("Initialized virtual DShot motor count %d\n", dshotMotorCount);
+    pwmRawPkt.motorCount = dshotMotorCount;
+
+    // dshotConvertToExternal() produces 1000..2000 for normal mode and uses
+    // 1500 as stop in 3D mode.  Reuse the existing UDP normalisation around
+    // the corresponding external neutral value.
+    idlePulse = featureIsEnabled(FEATURE_3D) ? PWM_RANGE_MIDDLE : PWM_RANGE_MIN;
+
+    for (int motorIndex = 0; motorIndex < MAX_SUPPORTED_MOTORS && motorIndex < dshotMotorCount; motorIndex++) {
+        motorsDshot[motorIndex] = DSHOT_CMD_MOTOR_STOP;
+        pwmMotors[motorIndex].enabled = true;
+    }
+
+    return true;
+}
+#endif
 
 // stack part
 char _estack;

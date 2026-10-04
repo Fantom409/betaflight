@@ -53,6 +53,24 @@ Initialized virtual DShot motor count 4
 2. start gazebo: `gazebo --verbose ./iris_arducopter_demo.world`
 4. connect your transmitter and fly/test, I used a app to send `MSP_SET_RAW_RC`, code available [here](https://github.com/cs8425/msp-controller).
 
+### online configurator
+
+The included launcher builds and starts SITL, then exposes UART1 through
+WebSockets for the online Betaflight Configurator:
+
+```
+./src/platform/SIMULATOR/target/SITL/run_betaflight_sitl.sh
+```
+
+The launcher requires `ss` from `iproute2` and
+[`websockify`](https://github.com/novnc/websockify). If needed, install the
+latter with `python3 -m pip install --user websockify`.
+
+In the configurator, enable manual connection mode and connect to
+`ws://127.0.0.1:6761`. Press Ctrl-C in the terminal to stop both websockify and
+SITL. A compatible Gazebo world or another flight-dynamics simulator must be
+started separately.
+
 ### note
 betaflight	->	gazebo	`udp://127.0.0.1:9002`
 gazebo	->	betaflight	`udp://127.0.0.1:9003`

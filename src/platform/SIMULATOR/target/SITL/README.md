@@ -1,4 +1,84 @@
-## SITL in gazebo 8 with ArduCopterPlugin
+## Gazebo Harmonic (`gz sim`) with the runway world
+
+The stock ArduPilot `iris_runway.sdf` loads `ArduPilotPlugin`, which does not
+speak Betaflight's binary UDP protocol. Use the supplied Gazebo launcher with
+the SITL launcher to keep that environment and replace the aircraft with a
+Betaflight Iris. Gazebo Harmonic (gz-sim8), its development libraries, CMake,
+Git, `patch`, and Python 3 are required.
+
+Download the compatible bridge and model once, from the Betaflight repository
+root (these assets and their build outputs stay in ignored `obj/`):
+
+```sh
+git clone --branch gz https://github.com/betaflight/aeroloop_gazebo.git obj/aeroloop_gazebo
+git -C obj/aeroloop_gazebo checkout a6c16d2d653932a96ced279522ba39b6da15f78c
+```
+
+The launcher expects the existing ArduPilot Gazebo checkout at
+`~/gz_ws/src/ardupilot_gazebo`. Set `ARDUPILOT_GAZEBO_DIR` to override it, or
+`AEROLOOP_GAZEBO_DIR` to use a different Aeroloop checkout at the pinned revision.
+Source your Gazebo / ROS environment first if its tools and libraries are
+provided through ROS vendor packages.
+
+Terminal 1, start Betaflight and the configurator proxy:
+
+```sh
+./src/platform/SIMULATOR/target/SITL/run_betaflight_sitl.sh
+```
+
+Terminal 2, start the runway simulation:
+
+```sh
+./src/platform/SIMULATOR/target/SITL/run_gazebo_sitl.sh
+```
+
+Connect the configurator to `ws://127.0.0.1:6761`. The Gazebo launcher builds
+a patched copy of the external bridge and generates
+`obj/sitl-gazebo/iris_runway_betaflight.sdf`, then runs `gz sim -v4 -r` on it.
+Add `--headless` to run the server without the GUI. Stop each terminal with
+Ctrl-C. Do not run the stock ArduPilot world alongside this one.
+
+For independent Gaussian noise on all three IMU axes:
+
+```sh
+./src/platform/SIMULATOR/target/SITL/run_gazebo_sitl.sh --gyro-noise 0.01 --accel-noise 0.02
+```
+
+These values are standard deviations in rad/s and m/s² respectively; both
+default to zero. The bridge consumes `/betaflight/imu` sensor messages, so
+Gazebo's gravity, sensor orientation and noise reach Betaflight's virtual gyro
+and accelerometer. Sensor data is sent even before motor commands arrive,
+allowing the simulation to start disarmed. Motor joints are mapped to
+Betaflight QUADX order (rear-right, front-right, rear-left, front-left).
+
+This checkout runs its real attitude estimator. GPS is derived from Gazebo
+position and world spherical coordinates; barometer pressure is derived from
+altitude, and magnetometer readings are synthesized from attitude in `sitl.c`.
+Adding separate Gazebo pressure or magnetic sensors alone will not affect
+those Betaflight inputs. Independent GPS, barometer, or magnetometer noise and
+failure models require extending that sensor path.
+
+To change terrain, obstacles or physics, edit the generated SDF and launch it
+directly with the same resource and plugin paths (the launcher regenerates it
+on every invocation):
+
+```sh
+export GZ_SIM_RESOURCE_PATH="$PWD/obj/aeroloop_gazebo/models:$HOME/gz_ws/src/ardupilot_gazebo/models:$HOME/gz_ws/src/ardupilot_gazebo/worlds:${GZ_SIM_RESOURCE_PATH:-}"
+export GZ_SIM_SYSTEM_PLUGIN_PATH="$PWD/obj/sitl-gazebo/build:${GZ_SIM_SYSTEM_PLUGIN_PATH:-}"
+gz sim -v4 -r obj/sitl-gazebo/iris_runway_betaflight.sdf
+```
+
+Environment wind also needs Gazebo's WindEffects system and wind-enabled model
+links; setting a world wind vector alone does not apply forces to this model.
+RC control is separate: send receiver channels over UDP 9004 or use
+`MSP_SET_RAW_RC` with an MSP receiver configuration. The configurator connection
+alone does not provide continuous RC input.
+
+The bridge patch is in `gazebo_imu.patch`. It also replaces upstream's ESC
+telemetry extension with this checkout's 144-byte FDM packet ending in
+pressure; electrical ESC behavior remains outside this simulation.
+
+## Legacy: Gazebo Classic 8 with ArduCopterPlugin
 SITL (software in the loop) simulator allows you to run betaflight/cleanflight without any hardware.
 Currently only tested on Ubuntu 16.04, x86_64, gcc (Ubuntu 5.4.0-6ubuntu1~16.04.4) 5.4.0 20160609.
 
